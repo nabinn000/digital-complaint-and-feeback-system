@@ -1,262 +1,483 @@
-# Digital Citizen Complaint and Feedback System
-
-A web-based complaint management system for local government in Nepal, built with PHP, MySQL, HTML, CSS, and JavaScript.
-
----
-
-## Features
-
-- Citizen registration and login with bcrypt password hashing
-- Complaint submission with category selection, file upload, and interactive map location picker
-- Unique tracking ID generated for every complaint
-- Public complaint tracking without login required
-- Automated email notifications to citizens on status updates
-- Citizen satisfaction rating (1–5 stars) after complaint resolution
-- Administrator dashboard with complaint management, status updates, and internal notes
-- Interactive admin map showing all pinned complaints colour-coded by status
-- Statistical reports with complaint breakdown by category and status
-
----
-
-## Requirements
-
-- PHP 7.4 or higher
-- MySQL 5.7 or higher
-- XAMPP (recommended for local development)
-- Composer (for PHPMailer)
-- A modern web browser (Chrome, Firefox, Edge)
-
----
-
-## Installation
-
-### Step 1 — Install XAMPP
-
-Download and install XAMPP from [apachefriends.org](https://www.apachefriends.org).
-
-Start **Apache** and **MySQL** from the XAMPP control panel.
-
----
-
-### Step 2 — Copy the project files
-
-Copy the `citizen_complaint_system` folder into your XAMPP `htdocs` directory:
-
-```
-C:\xampp\htdocs\citizen_complaint_system\
-```
-
----
-
-### Step 3 — Create the database
-
-1. Open your browser and go to:
-```
-http://localhost/phpmyadmin
-```
-
-2. Click **New** and create a database named:
-```
-complaint_system
-```
-
-3. Select the database, click the **SQL** tab, paste the following and click **Go**:
-
-```sql
-CREATE TABLE users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    full_name VARCHAR(100) NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    phone VARCHAR(20),
-    address TEXT,
-    password VARCHAR(255) NOT NULL,
-    role ENUM('user', 'admin') DEFAULT 'user',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE complaints (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    description TEXT NOT NULL,
-    status ENUM('Pending', 'In Progress', 'Resolved') DEFAULT 'Pending',
-    tracking_number VARCHAR(20) UNIQUE,
-    category VARCHAR(50),
-    evidence VARCHAR(255),
-    latitude DECIMAL(10,8) NULL,
-    longitude DECIMAL(11,8) NULL,
-    feedback_rating TINYINT(1) NULL,
-    feedback_comment TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
-);
-
-CREATE TABLE complaint_notes (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    complaint_id INT NOT NULL,
-    admin_id INT NOT NULL,
-    note TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE,
-    FOREIGN KEY (admin_id) REFERENCES users(id)
-);
-```
-
----
-
-### Step 4 — Create an admin account
-
-After running the SQL above, insert an admin user by running this in phpMyAdmin SQL tab (replace the password hash with your own generated using bcrypt):
-
-```sql
-INSERT INTO users (full_name, email, password, role)
-VALUES ('Admin User', 'admin@example.com', '$2y$10$YourBcryptHashHere', 'admin');
-```
-
-To generate a bcrypt hash for your chosen password, create a temporary PHP file in htdocs:
-
-```php
 <?php
-echo password_hash('your_password_here', PASSWORD_BCRYPT);
+session_start();
+// Only destroy session if user explicitly navigated here via logout
+// Removed session_destroy() — visiting the homepage no longer logs you out
 ?>
-```
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Citizen Complaint Portal — Government of Nepal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-Visit `http://localhost/hash.php`, copy the output, paste it into the SQL above, then delete the file.
+        :root {
+            --navy: #0b1f3a;
+            --navy-hover: #122848;
+            --gold: #c9a84c;
+            --bg: #eef2f7;
+            --white: #ffffff;
+            --text: #111827;
+            --muted: #6b7280;
+            --border: #e5e7eb;
+        }
 
----
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
 
-### Step 5 — Configure the database connection
+        /* ── Navbar ─────────────────────────────── */
+        nav {
+            background: var(--navy);
+            padding: 0 32px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
 
-Open `includes/db.php` and update the credentials if needed:
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+        }
 
-```php
-$host     = 'localhost';
-$dbname   = 'complaint_system';
-$username = 'root';
-$password = '';
-```
+        .nav-brand .icon {
+            font-size: 20px;
+        }
 
----
+        .nav-brand .name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #fff;
+        }
 
-### Step 6 — Install PHPMailer (for email notifications)
+        .nav-links { display: flex; align-items: center; gap: 8px; }
 
-Open a terminal in the `citizen_complaint_system` folder and run:
+        .nav-links a {
+            font-size: 13px;
+            font-weight: 400;
+            color: rgba(255,255,255,0.75);
+            text-decoration: none;
+            padding: 7px 14px;
+            border-radius: 7px;
+            transition: background 0.18s, color 0.18s;
+        }
 
-```bash
-composer require phpmailer/phpmailer
-```
+        .nav-links a:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
-If you do not have Composer, download it from [getcomposer.org](https://getcomposer.org).
+        .nav-links a.btn-nav {
+            background: var(--gold);
+            color: var(--navy);
+            font-weight: 500;
+        }
 
----
+        .nav-links a.btn-nav:hover { background: #d4b560; }
 
-### Step 7 — Configure email notifications
+        /* ── Hero ───────────────────────────────── */
+        .hero {
+            background: var(--navy);
+            padding: 72px 32px 80px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
 
-Open `includes/email_notification.php` and update the SMTP settings:
+        .hero::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(ellipse 60% 60% at 50% 110%, rgba(201,168,76,0.12), transparent);
+            pointer-events: none;
+        }
 
-```php
-$mail->Host       = 'smtp.gmail.com';   // Your SMTP server
-$mail->Username   = 'your@email.com';   // Your email address
-$mail->Password   = 'your_app_password'; // Your app password
-$mail->Port       = 587;
-```
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(201,168,76,0.15);
+            border: 1px solid rgba(201,168,76,0.35);
+            border-radius: 20px;
+            padding: 5px 14px;
+            font-size: 11.5px;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            color: var(--gold);
+            text-transform: uppercase;
+            margin-bottom: 24px;
+            animation: fadeUp 0.5s ease both;
+        }
 
-For testing without a live email account, use [Mailtrap](https://mailtrap.io) — sign up free and copy the SMTP credentials from your Mailtrap inbox settings.
+        .hero h1 {
+            font-size: clamp(28px, 4vw, 44px);
+            font-weight: 500;
+            color: #fff;
+            line-height: 1.2;
+            max-width: 620px;
+            margin: 0 auto 16px;
+            animation: fadeUp 0.5s 0.08s ease both;
+        }
 
----
+        .hero p {
+            font-size: 15px;
+            font-weight: 300;
+            color: rgba(255,255,255,0.6);
+            max-width: 480px;
+            margin: 0 auto 36px;
+            line-height: 1.7;
+            animation: fadeUp 0.5s 0.16s ease both;
+        }
 
-### Step 8 — Create the uploads folder
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+            animation: fadeUp 0.5s 0.22s ease both;
+        }
 
-Make sure an `uploads` folder exists in the project root and is writable:
+        .hero-actions a {
+            height: 46px;
+            padding: 0 28px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            transition: opacity 0.18s, transform 0.1s;
+        }
 
-```
-citizen_complaint_system/uploads/
-```
+        .hero-actions a:active { transform: scale(0.98); }
 
-If it does not exist, create it manually. On Windows XAMPP it should work automatically. On Linux/Mac run:
+        .btn-primary { background: var(--gold); color: var(--navy); }
+        .btn-primary:hover { opacity: 0.88; }
 
-```bash
-chmod 755 uploads/
-```
+        .btn-outline {
+            background: transparent;
+            color: rgba(255,255,255,0.85);
+            border: 1.5px solid rgba(255,255,255,0.25);
+        }
 
----
+        .btn-outline:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
 
-## Running the system
+        /* ── Features ───────────────────────────── */
+        .section {
+            padding: 64px 32px;
+            max-width: 1100px;
+            margin: 0 auto;
+            width: 100%;
+        }
 
-Open your browser and go to:
+        .section-label {
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--gold);
+            text-align: center;
+            margin-bottom: 10px;
+        }
 
-```
-http://localhost/citizen_complaint_system/
-```
+        .section-title {
+            font-size: 24px;
+            font-weight: 500;
+            color: var(--navy);
+            text-align: center;
+            margin-bottom: 8px;
+        }
 
-**Citizen login:** Register a new account on the registration page.
+        .section-sub {
+            font-size: 14px;
+            color: var(--muted);
+            text-align: center;
+            font-weight: 300;
+            margin-bottom: 40px;
+        }
 
-**Admin login:** Use the admin credentials you created in Step 4.
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+        }
 
----
+        .feature-card {
+            background: var(--white);
+            border-radius: 12px;
+            padding: 28px 24px;
+            border: 1px solid var(--border);
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
 
-## Project structure
+        .feature-card:hover {
+            box-shadow: 0 4px 20px rgba(0,0,0,0.07);
+            transform: translateY(-2px);
+        }
 
-```
-citizen_complaint_system/
-├── index.php                  — Homepage
-├── register.php               — Citizen registration
-├── login.php                  — Login page
-├── logout.php                 — Session logout
-├── dashboard.php              — Citizen dashboard
-├── submit_complaint.php       — Complaint submission with map
-├── view_complaints.php        — Citizen complaint history and feedback
-├── track.php                  — Public complaint tracking
-├── admin/
-│   ├── admin_dashboard.php    — Admin overview
-│   ├── manage_complaints.php  — Complaint list with filters
-│   ├── complaint_detail.php   — View, update, and add notes
-│   ├── complaints_map.php     — Geographic map of complaints
-│   └── reports.php            — Statistics and charts
-├── includes/
-│   ├── auth.php               — Session, authentication, CSRF
-│   ├── db.php                 — Database connection
-│   └── email_notification.php — PHPMailer email helper
-└── uploads/                   — Uploaded evidence files
-```
+        .feature-icon {
+            width: 44px;
+            height: 44px;
+            background: #f0f4f9;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
 
----
+        .feature-card h3 {
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--navy);
+            margin-bottom: 8px;
+        }
 
-## Technologies used
+        .feature-card p {
+            font-size: 13px;
+            color: var(--muted);
+            font-weight: 300;
+            line-height: 1.6;
+        }
 
-| Technology | Purpose |
-|---|---|
-| PHP 7.4+ | Server-side application logic |
-| MySQL | Relational database |
-| HTML / CSS / JavaScript | Frontend interface |
-| Leaflet.js 1.9.4 | Interactive maps |
-| OpenStreetMap | Free map tiles |
-| Nominatim API | Address geocoding search |
-| PHPMailer | SMTP email notifications |
-| Chart.js | Reports bar chart |
-| XAMPP | Local development environment |
+        /* ── How it works ───────────────────────── */
+        .steps-section {
+            background: var(--white);
+            padding: 64px 32px;
+        }
 
----
+        .steps-inner {
+            max-width: 900px;
+            margin: 0 auto;
+        }
 
-## Security features
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 0;
+            position: relative;
+            margin-top: 40px;
+        }
 
-- Passwords hashed with bcrypt via `password_hash()`
-- CSRF tokens on all POST forms verified with `hash_equals()`
-- SQL injection prevented with PDO prepared statements
-- XSS prevented with `htmlspecialchars()` on all output
-- Session fixation prevented with `session_regenerate_id(true)` on login
-- Login lockout after 5 consecutive failed attempts
-- File uploads validated by extension whitelist and real MIME type check
-- Role-based access control enforced on all admin pages
+        .step {
+            text-align: center;
+            padding: 0 20px;
+            position: relative;
+        }
 
----
+        .step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 20px;
+            right: -1px;
+            width: 2px;
+            height: 40px;
+            background: var(--border);
+        }
 
-## Academic context
+        .step-num {
+            width: 40px;
+            height: 40px;
+            background: var(--navy);
+            color: #fff;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 14px;
+        }
 
-This system was developed as a final year undergraduate project at the University of West London, demonstrating the application of software engineering principles in a public sector context. It is a prototype intended for academic evaluation and is not intended for live government deployment without further development.
+        .step h4 {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--navy);
+            margin-bottom: 6px;
+        }
 
----
+        .step p {
+            font-size: 12.5px;
+            color: var(--muted);
+            font-weight: 300;
+            line-height: 1.6;
+        }
 
-## License
+        /* ── CTA banner ─────────────────────────── */
+        .cta-section {
+            padding: 64px 32px;
+            max-width: 700px;
+            margin: 0 auto;
+            text-align: center;
+        }
 
-This project was created for academic purposes. All rights reserved.
+        .cta-section h2 {
+            font-size: 22px;
+            font-weight: 500;
+            color: var(--navy);
+            margin-bottom: 10px;
+        }
+
+        .cta-section p {
+            font-size: 14px;
+            color: var(--muted);
+            font-weight: 300;
+            margin-bottom: 28px;
+            line-height: 1.7;
+        }
+
+        .cta-btn {
+            display: inline-flex;
+            align-items: center;
+            height: 46px;
+            padding: 0 32px;
+            background: var(--navy);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 500;
+            border-radius: 8px;
+            text-decoration: none;
+            transition: background 0.18s;
+        }
+
+        .cta-btn:hover { background: var(--navy-hover); }
+
+        /* ── Footer ─────────────────────────────── */
+        footer {
+            background: var(--navy);
+            padding: 24px 32px;
+            text-align: center;
+            margin-top: auto;
+        }
+
+        footer p {
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+            font-weight: 300;
+            line-height: 1.8;
+        }
+
+        /* ── Animations ─────────────────────────── */
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(14px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 600px) {
+            nav { padding: 0 20px; }
+            .hero { padding: 52px 20px 60px; }
+            .section { padding: 48px 20px; }
+            .steps-section { padding: 48px 20px; }
+            .step:not(:last-child)::after { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navbar -->
+    <nav>
+        <a class="nav-brand" href="index.php">
+            <span class="icon">🏛</span>
+            <span class="name">Citizen Complaint Portal</span>
+        </a>
+        <div class="nav-links">
+            <?php if (isset($_SESSION["user_id"])): ?>
+                <a href="<?php echo $_SESSION['role'] == 'admin' ? 'admin/admin_dashboard.php' : 'dashboard.php'; ?>">Dashboard</a>
+                <a href="logout.php">Logout</a>
+            <?php else: ?>
+                <a href="track.php">Track complaint</a>
+                <a href="login.php">Sign in</a>
+                <a href="register.php" class="btn-nav">Register</a>
+            <?php endif; ?>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="hero-badge">🇳🇵 &nbsp;Official Government Portal</div>
+        <h1>Report issues. Track progress.<br>Get results.</h1>
+        <p>A transparent digital platform connecting citizens of Nepal with local government authorities for faster, accountable complaint resolution.</p>
+        <div class="hero-actions">
+            <a href="register.php" class="btn-primary">Submit a complaint</a>
+            <a href="login.php" class="btn-outline">Sign in to dashboard</a>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <div class="section">
+        <div class="section-label">Why use this platform</div>
+        <h2 class="section-title">Everything you need, in one place</h2>
+        <p class="section-sub">Designed to make complaint management simple for citizens and efficient for authorities.</p>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <h3>Transparent Tracking</h3>
+                <p>Every complaint gets a unique tracking ID so you can monitor progress at any time.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3>Fast Resolution</h3>
+                <p>Authorities are notified immediately and can update complaint status in real time.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💬</div>
+                <h3>Direct Communication</h3>
+                <p>Citizens and officials interact through a single structured platform — no lost calls.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔒</div>
+                <h3>Secure & Private</h3>
+                <p>Your personal data is encrypted and only accessible to authorised administrators.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- How it works -->
+    <div class="steps-section">
+        <div class="steps-inner">
+            <div class="section-label">How it works</div>
+            <h2 class="section-title" style="text-align:center;">Three simple steps</h2>
+            <div class="steps-grid">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <h4>Register & sign in</h4>
+                    <p>Create a free citizen account in under a minute.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <h4>Submit your complaint</h4>
+                    <p>Describe the issue, choose a category, and attach evidence if needed.</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <h4>Track the outcome</h4>
+                    <p>Follow your complaint from Pending to Resolved using your tracking ID.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CTA -->
+    <div class="cta-section">
+        <h2>Ready to report an issue?</h2>
+        <p>Join thousands of citizens already using this platform to hold local government accountable and improve public services.</p>
+        <a href="register.php" class="cta-btn">Create a free account</a>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <p>© 2026 Ministry of Public Services, Government of Nepal</p>
+        <p>Official Government Portal &nbsp;·&nbsp; All Rights Reserved</p>
+    </footer>
+
+</body>
+</html>
